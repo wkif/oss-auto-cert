@@ -12,6 +12,7 @@ import (
 	"github.com/nekoimi/oss-auto-cert/internal/acme"
 	"github.com/nekoimi/oss-auto-cert/internal/alioss"
 	"github.com/nekoimi/oss-auto-cert/internal/config"
+	"github.com/nekoimi/oss-auto-cert/internal/qiniu"
 	"github.com/nekoimi/oss-auto-cert/pkg/webhook"
 )
 
@@ -27,12 +28,17 @@ type AutoCert struct {
 	access        oss.Credentials
 	cas           *alioss.CasService
 	cdn           *alioss.CDNService
+	qiniu         *qiniu.Service
 	acme          *acme.LegoAcme
 	messageCh     chan string
 	messageHandle func(message string)
 }
 
 func NewAutoCert(ctx context.Context, conf *config.Config) (*AutoCert, error) {
+	qiniuService, err := qiniu.NewService(conf.Qiniu)
+	if err != nil {
+		return nil, fmt.Errorf("初始化七牛服务失败: %w", err)
+	}
 	credentialsProvider, err := oss.NewEnvironmentVariableCredentialsProvider()
 	if err != nil {
 		log.Errorf("缺少OSS访问AccessKey环境变量配置: %s", err.Error())
@@ -46,6 +52,7 @@ func NewAutoCert(ctx context.Context, conf *config.Config) (*AutoCert, error) {
 		access:    access,
 		cas:       alioss.NewCasService(access),
 		cdn:       alioss.NewCDNService(access),
+		qiniu:     qiniuService,
 		acme:      acme.NewLegoAcme(conf.Acme),
 		messageCh: make(chan string),
 	}
@@ -124,11 +131,10 @@ func (c *AutoCert) Stop() {
 }
 
 func (c *AutoCert) run() {
-	if c.running.Load() {
+	if !c.running.CompareAndSwap(false, true) {
 		return
 	}
 
-	c.running.Store(true)
 	defer func() {
 		c.running.Store(false)
 	}()
@@ -142,19 +148,19 @@ func (c *AutoCert) run() {
 
 		b, err := alioss.NewAliYunOss(bucket, c.access)
 		if err != nil {
-			log.Errorf(err.Error())
+			log.Errorf("%s", err)
 			continue
 		}
 
 		info, err := b.GetCert()
 		if err != nil {
-			log.Errorf(err.Error())
+			log.Errorf("%s", err)
 			continue
 		}
 
 		expired, err := c.cas.IsExpired(info.ID)
 		if err != nil {
-			log.Errorf(err.Error())
+			log.Errorf("%s", err)
 			continue
 		}
 
@@ -166,14 +172,22 @@ func (c *AutoCert) run() {
 			// 过期，申请新证书
 			cert, err := c.acme.Obtain(bucket.Name, info.Domain, b.Client)
 			if err != nil {
-				log.Errorf(err.Error())
+				log.Errorf("%s", err)
 				continue
 			}
 
+			if c.qiniu != nil {
+				if err := c.qiniu.Deploy(c.ctx, cert); err != nil {
+					log.Errorf("%s", err)
+					c.messageCh <- fmt.Sprintf("%s 更新七牛域名证书失败: %s", messagePrefix, err.Error())
+				} else {
+					c.messageCh <- fmt.Sprintf("%s 七牛证书同步完成（仅处理证书覆盖的域名），请检查生效状态", messagePrefix)
+				}
+			}
 			// 上传证书文件到阿里云数字证书管理服务
 			certInfo, err := c.cas.Upload(cert)
 			if err != nil {
-				log.Errorf(err.Error())
+				log.Errorf("%s", err)
 				c.messageCh <- fmt.Sprintf("%s 上传证书到数字证书管理异常: %s", messagePrefix, err.Error())
 				continue
 			}
@@ -186,7 +200,7 @@ func (c *AutoCert) run() {
 				// 更新OSS域名关联的证书
 				err := b.UpgradeCert(info.Domain, fmt.Sprintf("%d-%s", certInfo.ID, info.Region))
 				if err != nil {
-					log.Errorf(err.Error())
+					log.Errorf("%s", err)
 					c.messageCh <- fmt.Sprintf("%s 更新OSS域名证书失败: %s", messagePrefix, err.Error())
 				} else {
 					c.messageCh <- fmt.Sprintf("%s 更新OSS域名证书成功，请及时检查证书生效", messagePrefix)
@@ -197,12 +211,13 @@ func (c *AutoCert) run() {
 				// 更新CDN关联的域名证书
 				err := c.cdn.UpgradeCert(info.Domain, certInfo)
 				if err != nil {
-					log.Errorf(err.Error())
+					log.Errorf("%s", err)
 					c.messageCh <- fmt.Sprintf("%s 更新CDN加速域名证书失败: %s", messagePrefix, err.Error())
 				} else {
 					c.messageCh <- fmt.Sprintf("%s 更新CDN加速域名证书成功，请及时检查证书生效", messagePrefix)
 				}
 			}()
+
 		}
 	}
 }

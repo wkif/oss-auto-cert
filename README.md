@@ -120,6 +120,12 @@ buckets:
     endpoint: oss-cn-hangzhou.aliyuncs.com
   - name: bucket-name-2
     endpoint: oss-cn-beijing.aliyuncs.com
+
+# 七牛 Fusion CDN（可选）
+qiniu:
+  enabled: true
+  domains:
+    - domain: cdn.example.com
 ```
 
 ### 环境变量
@@ -132,6 +138,8 @@ buckets:
 | `ACME_DATA_DIR` | 证书存储目录 | ❌ |
 | `ACME_EXPIRED_EARLY` | 提前续期天数 | ❌ |
 | `DEBUG` | 调试模式（true/false） | ❌ |
+| `QINIU_ACCESS_KEY` | 七牛 AccessKey（启用七牛时必需） | ❌ |
+| `QINIU_SECRET_KEY` | 七牛 SecretKey（启用七牛时必需） | ❌ |
 
 **说明：** 环境变量优先级高于配置文件。
 
@@ -189,4 +197,3 @@ docker run -d --rm \
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/image?repos=nekoimi/oss-auto-cert&type=date&legend=top-left)](https://www.star-history.com/?repos=nekoimi%2Foss-auto-cert&type=date&legend=top-left)
-

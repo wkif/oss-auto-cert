@@ -35,3 +35,9 @@ buckets:
 
   - name: bucket名称3
     endpoint: bucket信息endpoint地址
+
+# 七牛 Fusion CDN 配置（可选）
+# qiniu:
+#   enabled: true
+#   domains:
+#     - domain: cdn.example.com

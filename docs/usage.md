@@ -128,6 +128,12 @@ buckets:
     endpoint: oss-cn-beijing.aliyuncs.com
   - name: bucket-name-3
     endpoint: oss-cn-shenzhen.aliyuncs.com
+
+# 七牛 Fusion CDN（可选）
+qiniu:
+  enabled: true
+  domains:
+    - domain: cdn.example.com
 ```
 
 ### 环境变量配置
@@ -142,6 +148,8 @@ buckets:
 | `ACME_DATA_DIR` | 证书存储目录 | ❌ |
 | `ACME_EXPIRED_EARLY` | 提前续期天数 | ❌ |
 | `DEBUG` | 调试模式（true/false） | ❌ |
+| `QINIU_ACCESS_KEY` | 七牛 AccessKey（启用七牛时必需） | ❌ |
+| `QINIU_SECRET_KEY` | 七牛 SecretKey（启用七牛时必需） | ❌ |
 
 ### 命令行参数
 

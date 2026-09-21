@@ -34,6 +34,8 @@ type Config struct {
 	Acme Acme `yaml:"acme"`
 	// Bucket配置
 	Buckets []Bucket `yaml:"buckets"`
+	// 七牛 Fusion CDN 配置
+	Qiniu Qiniu `yaml:"qiniu"`
 }
 
 type Acme struct {
@@ -53,6 +55,23 @@ type Bucket struct {
 	Name string `yaml:"name"`
 	// Endpoint
 	Endpoint string `yaml:"endpoint"`
+}
+
+// Qiniu 保存七牛 Fusion CDN 配置。
+type Qiniu struct {
+	// 是否启用七牛证书部署。
+	Enabled bool `yaml:"enabled"`
+	// 七牛 AccessKey。未配置时从 QINIU_ACCESS_KEY 读取。
+	AccessKey string `yaml:"access-key"`
+	// 七牛 SecretKey。未配置时从 QINIU_SECRET_KEY 读取。
+	SecretKey string `yaml:"secret-key"`
+	// 需要部署证书的 Fusion CDN 域名。
+	Domains []QiniuDomain `yaml:"domains"`
+}
+
+// QiniuDomain 是七牛 Fusion CDN 域名配置。
+type QiniuDomain struct {
+	Domain string `yaml:"domain"`
 }
 
 // LoadOptions 加载配置
@@ -79,10 +98,16 @@ func (conf *Config) LoadOptions() {
 
 	conf.setExpiredEarlyTime()
 
-	log.Debugf("配置文件: %s", conf)
+	log.Debugf("已加载配置，Bucket 数量: %d", len(conf.Buckets))
 }
 
 func (conf *Config) LoadOptionsFromEnv() {
+	if value := os.Getenv("QINIU_ACCESS_KEY"); value != "" {
+		conf.Qiniu.AccessKey = value
+	}
+	if value := os.Getenv("QINIU_SECRET_KEY"); value != "" {
+		conf.Qiniu.SecretKey = value
+	}
 	value := os.Getenv("ACME_EMAIL")
 	if value != "" {
 		conf.Acme.Email = value
@@ -98,7 +123,7 @@ func (conf *Config) LoadOptionsFromEnv() {
 	value = os.Getenv("ACME_EXPIRED_EARLY")
 	if value != "" {
 		if valueInt, err := strconv.Atoi(value); err != nil {
-			log.Warnf(err.Error())
+			log.Warnf("环境变量 ACME_EXPIRED_EARLY 无效: %s", err)
 		} else {
 			conf.Acme.ExpiredEarly = valueInt
 			log.Debugf("set acme (expired early) from env: %d", valueInt)
@@ -106,7 +131,7 @@ func (conf *Config) LoadOptionsFromEnv() {
 		}
 	}
 
-	log.Debugf("配置文件: %s", conf)
+	log.Debugf("已加载配置，Bucket 数量: %d", len(conf.Buckets))
 }
 
 func (conf *Config) setExpiredEarlyTime() {
