@@ -6,6 +6,9 @@ ENV GOARCH=amd64
 
 WORKDIR /build
 COPY go.mod go.sum ./
+# 国内网络环境下 proxy.golang.org 可能不可达；构建时可通过 --build-arg GOPROXY 覆盖。
+ARG GOPROXY=https://goproxy.cn,direct
+ENV GOPROXY=${GOPROXY}
 RUN go mod download
 
 COPY . .
