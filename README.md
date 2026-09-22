@@ -124,6 +124,9 @@ buckets:
 # 七牛 Fusion CDN（可选）
 qiniu:
   enabled: true
+  challenge: http-01
+  # challenge-bucket: your-bucket
+  # challenge-endpoint: oss-cn-hangzhou.aliyuncs.com
   domains:
     - domain: cdn.example.com
 ```

@@ -39,5 +39,8 @@ buckets:
 # 七牛 Fusion CDN 配置（可选）
 # qiniu:
 #   enabled: true
+#   challenge: http-01
+#   challenge-bucket: bucket名称1
+#   challenge-endpoint: bucket信息endpoint地址
 #   domains:
 #     - domain: cdn.example.com

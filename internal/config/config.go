@@ -59,6 +59,8 @@ type Bucket struct {
 
 // Qiniu 保存七牛 Fusion CDN 配置。
 type Qiniu struct {
+	// 当前支持 http-01；验证文件通过阿里云 OSS Bucket 提供。
+	Challenge string `yaml:"challenge"`
 	// 是否启用七牛证书部署。
 	Enabled bool `yaml:"enabled"`
 	// 七牛 AccessKey。未配置时从 QINIU_ACCESS_KEY 读取。
@@ -67,6 +69,10 @@ type Qiniu struct {
 	SecretKey string `yaml:"secret-key"`
 	// 需要部署证书的 Fusion CDN 域名。
 	Domains []QiniuDomain `yaml:"domains"`
+	// HTTP-01 验证文件所在的阿里云 OSS Bucket，必须显式配置。
+	ChallengeBucket string `yaml:"challenge-bucket"`
+	// ChallengeBucket 对应的 OSS Endpoint；为空时从 buckets 查找。
+	ChallengeEndpoint string `yaml:"challenge-endpoint"`
 }
 
 // QiniuDomain 是七牛 Fusion CDN 域名配置。

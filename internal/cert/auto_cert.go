@@ -9,6 +9,7 @@ import (
 
 	"github.com/aliyun/aliyun-oss-go-sdk/oss"
 	"github.com/charmbracelet/log"
+	"github.com/go-acme/lego/v4/certificate"
 	"github.com/nekoimi/oss-auto-cert/internal/acme"
 	"github.com/nekoimi/oss-auto-cert/internal/alioss"
 	"github.com/nekoimi/oss-auto-cert/internal/config"
@@ -29,6 +30,7 @@ type AutoCert struct {
 	cas           *alioss.CasService
 	cdn           *alioss.CDNService
 	qiniu         *qiniu.Service
+	qiniuConfig   config.Qiniu
 	acme          *acme.LegoAcme
 	messageCh     chan string
 	messageHandle func(message string)
@@ -39,23 +41,21 @@ func NewAutoCert(ctx context.Context, conf *config.Config) (*AutoCert, error) {
 	if err != nil {
 		return nil, fmt.Errorf("初始化七牛服务失败: %w", err)
 	}
-	credentialsProvider, err := oss.NewEnvironmentVariableCredentialsProvider()
-	if err != nil {
-		log.Errorf("缺少OSS访问AccessKey环境变量配置: %s", err.Error())
-		return nil, err
+	var access oss.Credentials
+	var cas *alioss.CasService
+	var cdn *alioss.CDNService
+	if len(conf.Buckets) > 0 || conf.Qiniu.Enabled {
+		provider, err := oss.NewEnvironmentVariableCredentialsProvider()
+		if err != nil {
+			return nil, err
+		}
+		access = provider.GetCredentials()
 	}
-
-	access := credentialsProvider.GetCredentials()
-	c := &AutoCert{
-		ctx:       ctx,
-		buckets:   conf.Buckets,
-		access:    access,
-		cas:       alioss.NewCasService(access),
-		cdn:       alioss.NewCDNService(access),
-		qiniu:     qiniuService,
-		acme:      acme.NewLegoAcme(conf.Acme),
-		messageCh: make(chan string),
+	if len(conf.Buckets) > 0 {
+		cas = alioss.NewCasService(access)
+		cdn = alioss.NewCDNService(access)
 	}
+	c := &AutoCert{ctx: ctx, buckets: conf.Buckets, access: access, cas: cas, cdn: cdn, qiniu: qiniuService, qiniuConfig: conf.Qiniu, acme: acme.NewLegoAcme(conf.Acme), messageCh: make(chan string)}
 	c.running.Store(false)
 	if len(c.buckets) <= 0 {
 		log.Warnf("OSS存储Bucket配置为空!")
@@ -143,6 +143,7 @@ func (c *AutoCert) run() {
 		log.Infof("开始执行证书巡检，共 %d 个 Bucket", len(c.buckets))
 	}
 
+	c.runQiniu()
 	for _, bucket := range c.buckets {
 		log.Debugf("开始检测Bucket: %s ...", bucket.Name)
 
@@ -176,14 +177,6 @@ func (c *AutoCert) run() {
 				continue
 			}
 
-			if c.qiniu != nil {
-				if err := c.qiniu.Deploy(c.ctx, cert); err != nil {
-					log.Errorf("%s", err)
-					c.messageCh <- fmt.Sprintf("%s 更新七牛域名证书失败: %s", messagePrefix, err.Error())
-				} else {
-					c.messageCh <- fmt.Sprintf("%s 七牛证书同步完成（仅处理证书覆盖的域名），请检查生效状态", messagePrefix)
-				}
-			}
 			// 上传证书文件到阿里云数字证书管理服务
 			certInfo, err := c.cas.Upload(cert)
 			if err != nil {
@@ -220,4 +213,31 @@ func (c *AutoCert) run() {
 
 		}
 	}
+}
+
+func (c *AutoCert) runQiniu() {
+	if c.qiniu == nil {
+		return
+	}
+	c.qiniu.Reconcile(c.ctx, config.GetExpiredEarlyTime(), c.obtainQiniu, func(message string) { log.Info(message) })
+}
+
+func (c *AutoCert) obtainQiniu(domain string) (*certificate.Resource, error) {
+	bucket := config.Bucket{Name: c.qiniuConfig.ChallengeBucket, Endpoint: c.qiniuConfig.ChallengeEndpoint}
+	if bucket.Name == "" && len(c.buckets) > 0 {
+		bucket = c.buckets[0]
+	}
+	for _, b := range c.buckets {
+		if b.Name == bucket.Name && bucket.Endpoint == "" {
+			bucket.Endpoint = b.Endpoint
+		}
+	}
+	if bucket.Name == "" || bucket.Endpoint == "" {
+		return nil, fmt.Errorf("七牛 HTTP-01 需要显式配置 challenge-bucket 和对应 endpoint")
+	}
+	b, err := alioss.NewAliYunOss(bucket, c.access)
+	if err != nil {
+		return nil, err
+	}
+	return c.acme.Obtain(bucket.Name, domain, b.Client)
 }
